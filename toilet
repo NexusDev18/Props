@@ -1,0 +1,450 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+
+local PropsRemote = ReplicatedStorage:WaitForChild("RE"):WaitForChild("Props")
+local WorkspaceCom = workspace:WaitForChild("WorkspaceCom"):WaitForChild("001_TrafficCones")
+
+local selectedPlayer = nil
+local isTracking = false
+local trackingConnection = nil
+local propRemotes = {}
+local propCount = 10
+local speed = 100
+local radius = 3
+local height = 0
+
+local PURPLE = Color3.fromRGB(150, 90, 255)
+local PURPLE_DARK = Color3.fromRGB(90, 50, 180)
+local PURPLE_DEEP = Color3.fromRGB(40, 20, 70)
+local BG = Color3.fromRGB(20, 12, 40)
+local SURFACE = Color3.fromRGB(30, 18, 55)
+local TEXT = Color3.fromRGB(235, 225, 255)
+local TEXT_DIM = Color3.fromRGB(170, 155, 210)
+local GREEN = Color3.fromRGB(80, 220, 140)
+
+local function corner(p, r)
+    local c = Instance.new("UICorner", p)
+    c.CornerRadius = UDim.new(0, r or 8)
+    return c
+end
+
+local function stroke(p, color, t, trans)
+    local s = Instance.new("UIStroke", p)
+    s.Color = color or PURPLE
+    s.Thickness = t or 1
+    s.Transparency = trans or 0.4
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    return s
+end
+
+local function tween(o, t, props)
+    TweenService:Create(o, TweenInfo.new(t, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), props):Play()
+end
+
+local function notify(title, text, duration)
+    StarterGui:SetCore("SendNotification", {
+        Title = title,
+        Text = text,
+        Duration = duration or 3,
+        Icon = "rbxassetid://6031071053"
+    })
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "NexusHUB"
+screenGui.Parent = game:GetService("CoreGui")
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 260, 0, 380)
+mainFrame.Position = UDim2.new(0.5, -130, 0.5, -190)
+mainFrame.BackgroundColor3 = BG
+mainFrame.BackgroundTransparency = 0.15
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+corner(mainFrame, 14)
+stroke(mainFrame, PURPLE, 1.5, 0.3)
+
+local glassBg = Instance.new("Frame", mainFrame)
+glassBg.Size = UDim2.new(1, 0, 1, 0)
+glassBg.BackgroundColor3 = Color3.fromRGB(60, 30, 100)
+glassBg.BackgroundTransparency = 0.92
+glassBg.BorderSizePixel = 0
+glassBg.ZIndex = 0
+corner(glassBg, 14)
+
+local glow = Instance.new("ImageLabel", mainFrame)
+glow.BackgroundTransparency = 1
+glow.Image = "rbxasset://textures/ui/Glow.png"
+glow.ImageColor3 = PURPLE
+glow.ImageTransparency = 0.55
+glow.Size = UDim2.new(1, 60, 1, 60)
+glow.Position = UDim2.new(0, -30, 0, -30)
+glow.ZIndex = 0
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 36)
+titleBar.BackgroundColor3 = PURPLE_DEEP
+titleBar.BackgroundTransparency = 0.2
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+corner(titleBar, 14)
+
+local titleStripFix = Instance.new("Frame", titleBar)
+titleStripFix.Size = UDim2.new(1, 0, 0.5, 0)
+titleStripFix.Position = UDim2.new(0, 0, 0.5, 0)
+titleStripFix.BackgroundColor3 = PURPLE_DEEP
+titleStripFix.BackgroundTransparency = 0.2
+titleStripFix.BorderSizePixel = 0
+
+local titleDot = Instance.new("Frame", titleBar)
+titleDot.Size = UDim2.new(0, 8, 0, 8)
+titleDot.Position = UDim2.new(0, 12, 0.5, -4)
+titleDot.BackgroundColor3 = PURPLE
+titleDot.BorderSizePixel = 0
+corner(titleDot, 4)
+
+local titleText = Instance.new("TextLabel", titleBar)
+titleText.Size = UDim2.new(1, -60, 1, 0)
+titleText.Position = UDim2.new(0, 28, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "Nexus HUB TOILET"
+titleText.TextColor3 = TEXT
+titleText.Font = Enum.Font.GothamBlack
+titleText.TextSize = 13
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+
+local closeBtn = Instance.new("TextButton", titleBar)
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -32, 0.5, -12)
+closeBtn.BackgroundColor3 = PURPLE
+closeBtn.BackgroundTransparency = 0.3
+closeBtn.Text = "x"
+closeBtn.TextColor3 = TEXT
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 12
+closeBtn.BorderSizePixel = 0
+corner(closeBtn, 12)
+closeBtn.MouseEnter:Connect(function() tween(closeBtn, 0.15, {BackgroundTransparency = 0.1}) end)
+closeBtn.MouseLeave:Connect(function() tween(closeBtn, 0.15, {BackgroundTransparency = 0.3}) end)
+closeBtn.MouseButton1Click:Connect(function()
+    isTracking = false
+    if trackingConnection then trackingConnection:Disconnect() end
+    tween(mainFrame, 0.25, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)})
+    task.wait(0.28)
+    screenGui:Destroy()
+end)
+
+local container = Instance.new("Frame", mainFrame)
+container.Size = UDim2.new(1, -16, 1, -46)
+container.Position = UDim2.new(0, 8, 0, 40)
+container.BackgroundTransparency = 1
+
+local settings = Instance.new("Frame", container)
+settings.Size = UDim2.new(1, 0, 0, 130)
+settings.BackgroundColor3 = SURFACE
+settings.BackgroundTransparency = 0.25
+settings.BorderSizePixel = 0
+corner(settings, 10)
+stroke(settings, PURPLE, 1, 0.7)
+
+local function createSetting(parent, y, name, default, min, max, step, callback)
+    local label = Instance.new("TextLabel", parent)
+    label.Size = UDim2.new(1, -16, 0, 14)
+    label.Position = UDim2.new(0, 10, 0, y)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. default
+    label.TextColor3 = TEXT_DIM
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 10
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local minus = Instance.new("TextButton", parent)
+    minus.Size = UDim2.new(0, 22, 0, 18)
+    minus.Position = UDim2.new(0, 10, 0, y + 14)
+    minus.BackgroundColor3 = PURPLE_DARK
+    minus.BackgroundTransparency = 0.3
+    minus.Text = "-"
+    minus.TextColor3 = TEXT
+    minus.Font = Enum.Font.GothamBold
+    minus.TextSize = 13
+    minus.BorderSizePixel = 0
+    corner(minus, 6)
+
+    local valBox = Instance.new("TextBox", parent)
+    valBox.Size = UDim2.new(0, 46, 0, 18)
+    valBox.Position = UDim2.new(0, 36, 0, y + 14)
+    valBox.BackgroundColor3 = BG
+    valBox.BackgroundTransparency = 0.2
+    valBox.Text = tostring(default)
+    valBox.TextColor3 = TEXT
+    valBox.Font = Enum.Font.GothamBold
+    valBox.TextSize = 11
+    valBox.BorderSizePixel = 0
+    corner(valBox, 6)
+    stroke(valBox, PURPLE, 1, 0.6)
+
+    local plus = Instance.new("TextButton", parent)
+    plus.Size = UDim2.new(0, 22, 0, 18)
+    plus.Position = UDim2.new(0, 86, 0, y + 14)
+    plus.BackgroundColor3 = PURPLE_DARK
+    plus.BackgroundTransparency = 0.3
+    plus.Text = "+"
+    plus.TextColor3 = TEXT
+    plus.Font = Enum.Font.GothamBold
+    plus.TextSize = 13
+    plus.BorderSizePixel = 0
+    corner(plus, 6)
+
+    local val = default
+    local function update(v)
+        v = math.max(min, math.min(max, v))
+        val = v
+        valBox.Text = tostring(v)
+        label.Text = name .. ": " .. v
+        callback(v)
+    end
+    minus.MouseButton1Click:Connect(function() update(val - step) end)
+    plus.MouseButton1Click:Connect(function() update(val + step) end)
+    valBox.FocusLost:Connect(function() update(tonumber(valBox.Text) or val) end)
+end
+
+createSetting(settings, 6, "Count", 10, 2, 20, 2, function(v) propCount = v end)
+createSetting(settings, 38, "Speed", 100, 10, 500, 10, function(v) speed = v end)
+createSetting(settings, 70, "Radius", 3, 0.5, 20, 0.5, function(v) radius = v end)
+createSetting(settings, 102, "Height", 0, -10, 15, 0.5, function(v) height = v end)
+
+local DROPDOWN_CLOSED = 32
+local DROPDOWN_OPEN = 160
+
+local dropdown = Instance.new("Frame", container)
+dropdown.Position = UDim2.new(0, 0, 0, 140)
+dropdown.Size = UDim2.new(1, 0, 0, DROPDOWN_CLOSED)
+dropdown.BackgroundColor3 = SURFACE
+dropdown.BackgroundTransparency = 0.25
+dropdown.BorderSizePixel = 0
+dropdown.ClipsDescendants = true
+corner(dropdown, 10)
+stroke(dropdown, PURPLE, 1, 0.7)
+
+local ddHeader = Instance.new("TextButton", dropdown)
+ddHeader.Size = UDim2.new(1, 0, 0, 32)
+ddHeader.BackgroundTransparency = 1
+ddHeader.Text = ""
+ddHeader.AutoButtonColor = false
+
+local ddLabel = Instance.new("TextLabel", ddHeader)
+ddLabel.Size = UDim2.new(1, -70, 1, 0)
+ddLabel.Position = UDim2.new(0, 12, 0, 0)
+ddLabel.BackgroundTransparency = 1
+ddLabel.Text = "Select Player"
+ddLabel.TextColor3 = TEXT
+ddLabel.Font = Enum.Font.GothamBold
+ddLabel.TextSize = 11
+ddLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local refreshBtn = Instance.new("TextButton", ddHeader)
+refreshBtn.Size = UDim2.new(0, 26, 0, 22)
+refreshBtn.Position = UDim2.new(1, -62, 0.5, -11)
+refreshBtn.BackgroundColor3 = PURPLE_DARK
+refreshBtn.BackgroundTransparency = 0.2
+refreshBtn.Text = "R"
+refreshBtn.TextColor3 = TEXT
+refreshBtn.Font = Enum.Font.GothamBold
+refreshBtn.TextSize = 11
+refreshBtn.BorderSizePixel = 0
+corner(refreshBtn, 6)
+
+local arrow = Instance.new("TextLabel", ddHeader)
+arrow.Size = UDim2.new(0, 20, 0, 20)
+arrow.Position = UDim2.new(1, -28, 0.5, -10)
+arrow.BackgroundTransparency = 1
+arrow.Text = "v"
+arrow.TextColor3 = PURPLE
+arrow.Font = Enum.Font.GothamBold
+arrow.TextSize = 12
+arrow.Rotation = 0
+
+local playerList = Instance.new("ScrollingFrame", dropdown)
+playerList.Position = UDim2.new(0, 6, 0, 34)
+playerList.Size = UDim2.new(1, -12, 0, DROPDOWN_OPEN - 40)
+playerList.BackgroundTransparency = 1
+playerList.BorderSizePixel = 0
+playerList.ScrollBarThickness = 3
+playerList.ScrollBarImageColor3 = PURPLE
+playerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local listLayout = Instance.new("UIListLayout", playerList)
+listLayout.Padding = UDim.new(0, 4)
+
+local ddOpen = false
+local function refreshPlayerList()
+    for _, c in playerList:GetChildren() do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    local count = 0
+    for _, plr in Players:GetPlayers() do
+        if plr ~= LocalPlayer then
+            count = count + 1
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -4, 0, 26)
+            btn.BackgroundColor3 = (selectedPlayer == plr) and PURPLE or BG
+            btn.BackgroundTransparency = (selectedPlayer == plr) and 0.1 or 0.3
+            btn.Text = "  " .. plr.Name
+            btn.TextColor3 = TEXT
+            btn.Font = Enum.Font.GothamMedium
+            btn.TextSize = 11
+            btn.TextXAlignment = Enum.TextXAlignment.Left
+            btn.BorderSizePixel = 0
+            btn.AutoButtonColor = false
+            btn.Parent = playerList
+            corner(btn, 6)
+            btn.MouseEnter:Connect(function()
+                if selectedPlayer ~= plr then tween(btn, 0.15, {BackgroundTransparency = 0.1}) end
+            end)
+            btn.MouseLeave:Connect(function()
+                if selectedPlayer ~= plr then tween(btn, 0.15, {BackgroundTransparency = 0.3}) end
+            end)
+            btn.MouseButton1Click:Connect(function()
+                selectedPlayer = plr
+                ddLabel.Text = "Player: " .. plr.Name
+                refreshPlayerList()
+            end)
+        end
+    end
+    playerList.CanvasSize = UDim2.new(0, 0, 0, count * 30 + 6)
+end
+
+local function toggleDropdown()
+    ddOpen = not ddOpen
+    tween(dropdown, 0.28, {Size = UDim2.new(1, 0, 0, ddOpen and DROPDOWN_OPEN or DROPDOWN_CLOSED)})
+    tween(arrow, 0.28, {Rotation = ddOpen and 180 or 0})
+end
+ddHeader.MouseButton1Click:Connect(toggleDropdown)
+
+refreshBtn.MouseButton1Click:Connect(function()
+    tween(refreshBtn, 0.3, {Rotation = refreshBtn.Rotation + 360})
+    refreshPlayerList()
+end)
+
+refreshPlayerList()
+Players.PlayerAdded:Connect(refreshPlayerList)
+Players.PlayerRemoving:Connect(function(plr)
+    if selectedPlayer == plr then
+        selectedPlayer = nil
+        ddLabel.Text = "Select Player"
+    end
+    refreshPlayerList()
+end)
+
+local btnRow = Instance.new("Frame", container)
+btnRow.Position = UDim2.new(0, 0, 1, -38)
+btnRow.Size = UDim2.new(1, 0, 0, 34)
+btnRow.BackgroundTransparency = 1
+
+local toggleBtn = Instance.new("TextButton", btnRow)
+toggleBtn.Size = UDim2.new(1, 0, 1, 0)
+toggleBtn.Position = UDim2.new(0, 0, 0, 0)
+toggleBtn.BackgroundColor3 = PURPLE
+toggleBtn.BackgroundTransparency = 0.1
+toggleBtn.Text = "CONNECT"
+toggleBtn.TextColor3 = TEXT
+toggleBtn.Font = Enum.Font.GothamBlack
+toggleBtn.TextSize = 12
+toggleBtn.BorderSizePixel = 0
+toggleBtn.AutoButtonColor = false
+corner(toggleBtn, 8)
+stroke(toggleBtn, PURPLE, 1.5, 0.2)
+
+toggleBtn.MouseEnter:Connect(function()
+    tween(toggleBtn, 0.15, {BackgroundTransparency = 0})
+end)
+toggleBtn.MouseLeave:Connect(function()
+    tween(toggleBtn, 0.15, {BackgroundTransparency = 0.1})
+end)
+
+local function stopTracking()
+    isTracking = false
+    if trackingConnection then
+        trackingConnection:Disconnect()
+        trackingConnection = nil
+    end
+    toggleBtn.Text = "CONNECT"
+    tween(toggleBtn, 0.2, {BackgroundColor3 = PURPLE})
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    if isTracking then
+        stopTracking()
+        return
+    end
+
+    if not selectedPlayer then
+        ddLabel.Text = "! Pick a player first"
+        task.delay(1.2, function() ddLabel.Text = "Select Player" end)
+        return
+    end
+
+    pcall(function()
+        local args = {"PickingTools", "PropMaker"}
+        ReplicatedStorage:WaitForChild("RE"):WaitForChild("1Too1l"):InvokeServer(unpack(args))
+    end)
+
+    notify("Step 1/2", "Click on the 'Furniture' tab in the PropMaker tool!", 4)
+
+    task.delay(3, function()
+        notify("Step 2/2", "Select 'Toilet' and click on the ground to place props!", 4)
+    end)
+
+    task.delay(6, function()
+        propRemotes = {}
+
+        pcall(function() PropsRemote:FireServer("ToggleEditMode") end)
+        task.wait(0.5)
+
+        for i = 1, propCount do
+            pcall(function() PropsRemote:FireServer("SpawnProp") end)
+            task.wait(0.1)
+        end
+
+        for _, f in WorkspaceCom:GetChildren() do
+            if f.Name:find("Prop") then
+                local r = f:FindFirstChild("SetCurrentCFrame")
+                if r then table.insert(propRemotes, r) end
+            end
+        end
+
+        local angles = {}
+        for i = 1, #propRemotes do angles[i] = (360 / #propRemotes) * (i - 1) end
+
+        isTracking = true
+        toggleBtn.Text = "CONNECTED"
+        tween(toggleBtn, 0.2, {BackgroundColor3 = GREEN})
+
+        notify("Tracking Started", "Props are now following " .. selectedPlayer.Name .. "!", 3)
+
+        trackingConnection = RunService.Heartbeat:Connect(function()
+            if not isTracking or not selectedPlayer or not selectedPlayer.Character then return end
+            local hrp = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            for i = 1, #propRemotes do
+                if propRemotes[i] then
+                    angles[i] = (angles[i] + speed) % 360
+                    local rad = math.rad(angles[i])
+                    local cf = hrp.CFrame * CFrame.new(math.cos(rad) * radius, height, math.sin(rad) * radius)
+                    pcall(function() propRemotes[i]:InvokeServer(cf) end)
+                end
+            end
+        end)
+    end)
+end)
+
+mainFrame.Size = UDim2.new(0, 0, 0, 0)
+tween(mainFrame, 0.35, {Size = UDim2.new(0, 260, 0, 380)})
